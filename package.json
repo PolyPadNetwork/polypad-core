@@ -1,0 +1,51 @@
+{
+  "name": "maticpad-token",
+  "version": "0.1.0",
+  "scripts": {
+    "flatten": "truffle-flattener",
+    "console:dev": "truffle console --network dev",
+    "deploy:dev": "truffle migrate --reset --network dev",
+    "deploy:matic": "truffle migrate --reset --network matic",
+    "deploy:ropsten": "truffle migrate --network ropsten",
+    "deploy:rinkeby": "truffle migrate --network rinkeby",
+    "deploy:mainnet": "truffle migrate --network mainnet"
+  },
+  "devDependencies": {
+    "@ethersproject/address": "^5.0.0-beta",
+    "@ethersproject/contracts": "^5.0.0-beta",
+    "@ethersproject/networks": "^5.0.0-beta",
+    "@ethersproject/providers": "^5.0.0-beta",
+    "@ethersproject/solidity": "^5.0.0-beta",
+    "@truffle/artifactor": "^4.0.84",
+    "@truffle/contract": "^4.2.25",
+    "@truffle/hdwallet-provider": "1.4.0",
+    "@types/chai": "^4.2.14",
+    "@types/ethereumjs-util": "^6.1.0",
+    "@types/mocha": "^8.0.4",
+    "@types/node": "^14.14.8",
+    "@uniswap/sdk": "^3.0.3",
+    "@uniswap/v2-periphery": "^1.1.0-beta.0",
+    "chai": "^4.2.0",
+    "ethereum-waffle": "^3.2.0",
+    "ethereumjs-util": "^7.0.7",
+    "ethers": "^5.0.19",
+    "ganache-cli": "^6.12.1",
+    "mocha": "^8.2.1",
+    "prettier": "^2.1.2",
+    "solc": "^0.6.12",
+    "solidity-coverage": "^0.7.12",
+    "truffle": "5.1.49",
+    "truffle-flattener": "^1.5.0",
+    "ts-node": "^9.0.0",
+    "typescript": "^4.0.5"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "3.2.0",
+    "@uniswap/v2-core": "^1.0.1",
+    "dotenv": "^8.2.0",
+    "ethereum-to-graphql": "^0.3.0",
+    "solidity-docgen": "^0.5.11",
+    "truffle-hdwallet-provider": "^1.0.17",
+    "truffle-plugin-verify": "^0.5.4"
+  }
+}
