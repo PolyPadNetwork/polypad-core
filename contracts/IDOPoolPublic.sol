@@ -173,7 +173,11 @@ contract IDOPoolPublic is Ownable {
     }
 
     // Add addresses to whitelist
-    function addToPoolWhiteList(address[] memory _users) public returns (bool) {
+    function addToPoolWhiteList(address[] memory _users)
+        public
+        onlyFactoryOwner()
+        returns (bool)
+    {
         for (uint256 i = 0; i < _users.length; i++) {
             if (poolWhiteList[_users[i]] != true) {
                 poolWhiteList[_users[i]] = true;

@@ -19,7 +19,12 @@ contract PoolFactory is Ownable {
         address token;
     }
 
-    event PoolCreated(address pool, address creator);
+    event PoolCreated(
+        address indexed _token,
+        address indexed _currency,
+        address pool,
+        address creator
+    );
 
     IDOPoolInfo[] public pools;
 
@@ -53,6 +58,6 @@ contract PoolFactory is Ownable {
         );
 
         pools.push(IDOPoolInfo(_pool, _currency, _token));
-        emit PoolCreated(_pool, msg.sender);
+        emit PoolCreated(_token, _currency, _pool, msg.sender);
     }
 }
