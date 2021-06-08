@@ -1,4 +1,5 @@
-pragma solidity ^0.6.6;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.6.12;
 
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -10,36 +11,49 @@ contract IDOPoolPublic is Ownable {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
+    // Info of each investor
     struct Sale {
-        address investor;
-        uint256 amount;
-        bool tokensWithdrawn;
+        address investor; // Address of user
+        uint256 amount; // Amount of tokens purchased
+        bool tokensWithdrawn; // Withdrawal status
     }
 
+    // Info of each investor that buy tokens.
     mapping(address => Sale) public sales;
-    address public factory;
+    // Start time
     uint256 public start;
+    // End time
     uint256 public end;
+    // Price of each token
     uint256 public price;
+    // Amount of tokens remaining
     uint256 public availableTokens;
+    // Total amount of tokens to be sold
     uint256 public totalAmount;
+    // Min amount for each sale
     uint256 public minPurchase;
+    // Max amount for each sake
     uint256 public maxPurchase;
+    // Release time
     uint256 public releaseTime;
+    // Whitelist addresses
     mapping(address => bool) public poolWhiteList;
     address[] private listWhitelists;
+    // List admins
+    mapping(address => bool) private admins;
+    // Number of investors
+    uint256 public numberParticipants;
 
     IERC20 public token;
     IERC20 public currency;
 
-    event PoolCreated();
     event Buy(address indexed _user, uint256 _amount, uint256 _tokenAmount);
     event Claim(address indexed _user, uint256 _amount);
     event Withdraw(address indexed _user, uint256 _amount);
+    event EmergencyWithdraw(address indexed _user, uint256 _amount);
     event Burn(address indexed _burnAddress, uint256 _amount);
 
     constructor(
-        address _factory,
         address _token,
         address _currency,
         uint256 _start,
@@ -63,7 +77,6 @@ contract IDOPoolPublic is Ownable {
             _maxPurchase <= _totalAmount,
             "_maxPurchase must be <= _totalAmount"
         );
-        factory = _factory;
         token = IERC20(_token);
         currency = IERC20(_currency);
         start = _start;
@@ -74,16 +87,16 @@ contract IDOPoolPublic is Ownable {
         availableTokens = _totalAmount;
         minPurchase = _minPurchase;
         maxPurchase = _maxPurchase;
-        emit PoolCreated();
     }
 
+    // Buy tokens
     function buy(uint256 amount)
         external
         poolActive()
         checkPoolWhiteList(msg.sender)
     {
         Sale storage sale = sales[msg.sender];
-        require(sale.amount == 0, "Already purchased");
+        require(sale.amount == 0, "Already purchased"); // Each address in whitelist can only be purchased once
         require(
             amount >= minPurchase && amount <= maxPurchase,
             "Have to buy between minPurchase and maxPurchase"
@@ -98,9 +111,11 @@ contract IDOPoolPublic is Ownable {
         availableTokens = availableTokens.sub(amount);
         currency.safeTransferFrom(msg.sender, address(this), currencyAmount);
         sales[msg.sender] = Sale(msg.sender, amount, false);
+        numberParticipants.add(1);
         emit Buy(msg.sender, currencyAmount, amount);
     }
 
+    // Withdraw purchased tokens
     function claimTokens() external canClaim() {
         Sale storage sale = sales[msg.sender];
         require(sale.amount > 0, "Only investors");
@@ -110,18 +125,28 @@ contract IDOPoolPublic is Ownable {
         emit Claim(msg.sender, sale.amount);
     }
 
-    function withdraw() external onlyFactoryOwner() poolEnded() {
+    // Admin withdraw after the sale ends
+    function withdraw() external onlyAdmins() poolEnded() {
         uint256 amount = currency.balanceOf(address(this));
-        currency.safeTransfer(owner(), amount);
+        currency.safeTransfer(factoryOwner(), amount);
         emit Withdraw(owner(), amount);
         if (availableTokens > 0) {
-            token.transfer(owner(), availableTokens);
+            token.transfer(factoryOwner(), availableTokens);
         }
     }
 
-    function emergencyWithdraw() public onlyFactoryOwner() {
-        currency.safeTransfer(msg.sender, currency.balanceOf(address(this)));
-        token.safeTransfer(msg.sender, token.balanceOf(address(this)));
+    // Withdraw without caring about progress. EMERGENCY ONLY.
+    function emergencyWithdraw() external onlyAdmins() {
+        uint256 currencyBalance = currency.balanceOf(address(this));
+        if (currencyBalance > 0) {
+            currency.safeTransfer(factoryOwner(), currencyBalance);
+            emit Withdraw(factoryOwner(), currencyBalance);
+        }
+        uint256 tokenBalance = token.balanceOf(address(this));
+        if (tokenBalance > 0) {
+            token.transfer(factoryOwner(), tokenBalance);
+            emit EmergencyWithdraw(factoryOwner(), tokenBalance);
+        }
     }
 
     modifier poolActive() {
@@ -147,6 +172,7 @@ contract IDOPoolPublic is Ownable {
         _;
     }
 
+    // Add addresses to whitelist
     function addToPoolWhiteList(address[] memory _users) public returns (bool) {
         for (uint256 i = 0; i < _users.length; i++) {
             if (poolWhiteList[_users[i]] != true) {
@@ -157,10 +183,36 @@ contract IDOPoolPublic is Ownable {
         return true;
     }
 
+    // Add addresses to admin list
+    function addToPoolAdmins(address[] memory _users)
+        public
+        onlyFactoryOwner()
+        returns (bool)
+    {
+        for (uint256 i = 0; i < _users.length; i++) {
+            admins[_users[i]] = true;
+        }
+        return true;
+    }
+
+    // Remove addresses from admin list
+    function removeFromPoolAdmins(address[] memory _users)
+        public
+        onlyFactoryOwner()
+        returns (bool)
+    {
+        for (uint256 i = 0; i < _users.length; i++) {
+            admins[_users[i]] = false;
+        }
+        return true;
+    }
+
+    // Get the whitelist
     function getPoolWhiteLists() public view returns (address[] memory) {
         return listWhitelists;
     }
 
+    // Check if the address is in the list
     function isPoolWhiteListed(address _user) public view returns (bool) {
         return poolWhiteList[_user];
     }
@@ -170,9 +222,26 @@ contract IDOPoolPublic is Ownable {
         _;
     }
 
-    modifier onlyFactoryOwner() {
-        require(msg.sender == PoolFactory(factory).owner());
+    function isPoolAdmins(address _user) public view returns (bool) {
+        return admins[_user];
+    }
+
+    modifier onlyAdmins() {
+        require(
+            isPoolAdmins(msg.sender) ||
+                msg.sender == PoolFactory(owner()).owner(),
+            "you are not admin"
+        );
         _;
+    }
+
+    modifier onlyFactoryOwner() {
+        require(msg.sender == PoolFactory(owner()).owner());
+        _;
+    }
+
+    function factoryOwner() private view returns (address) {
+        return PoolFactory(owner()).owner();
     }
 
     modifier canClaim() {
