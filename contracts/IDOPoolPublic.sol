@@ -58,7 +58,7 @@ contract IDOPoolPublic is Ownable {
         address _currency,
         uint256 _start,
         uint256 _end,
-        uint256 _lockDuration,
+        uint256 _releaseTime,
         uint256 _price,
         uint256 _totalAmount,
         uint256 _minPurchase,
@@ -81,7 +81,7 @@ contract IDOPoolPublic is Ownable {
         currency = IERC20(_currency);
         start = _start;
         end = _end;
-        releaseTime = start + _lockDuration;
+        releaseTime = _releaseTime;
         price = _price;
         totalAmount = _totalAmount;
         availableTokens = _totalAmount;
@@ -115,7 +115,7 @@ contract IDOPoolPublic is Ownable {
         emit Buy(msg.sender, currencyAmount, amount);
     }
 
-    // Withdraw purchased tokens
+    // Withdraw purchased tokens after release time
     function claimTokens() external canClaim() {
         Sale storage sale = sales[msg.sender];
         require(sale.amount > 0, "Only investors");
@@ -175,7 +175,7 @@ contract IDOPoolPublic is Ownable {
     // Add addresses to whitelist
     function addToPoolWhiteList(address[] memory _users)
         public
-        onlyFactoryOwner()
+        onlyAdmins()
         returns (bool)
     {
         for (uint256 i = 0; i < _users.length; i++) {
@@ -249,7 +249,10 @@ contract IDOPoolPublic is Ownable {
     }
 
     modifier canClaim() {
-        require(block.timestamp >= releaseTime, "You can not claim token");
+        require(
+            block.timestamp >= releaseTime,
+            "Please wait until release time"
+        );
         _;
     }
 }

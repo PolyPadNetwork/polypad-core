@@ -33,6 +33,8 @@ contract MpadPublicSale is Ownable {
     uint256 public minPurchase;
     // Max amount for each sake
     uint256 public maxPurchase;
+    // Release time
+    uint256 public releaseTime;
     // Whitelist addresses
     mapping(address => bool) public poolWhiteList;
     address[] private listWhitelists;
@@ -53,6 +55,7 @@ contract MpadPublicSale is Ownable {
         address _currency,
         uint256 _start,
         uint256 _end,
+        uint256 _releaseTime,
         uint256 _price,
         uint256 _totalAmount,
         uint256 _minPurchase,
@@ -75,6 +78,7 @@ contract MpadPublicSale is Ownable {
         currency = IERC20(_currency);
         start = _start;
         end = _end;
+        releaseTime = _releaseTime;
         price = _price;
         totalAmount = _totalAmount;
         availableTokens = _totalAmount;
@@ -107,8 +111,8 @@ contract MpadPublicSale is Ownable {
         emit Buy(msg.sender, currencyAmount, amount);
     }
 
-    // Withdraw purchased tokens after the sale ends
-    function claimTokens() external publicSaleEnded() {
+    // Withdraw purchased tokens after release time
+    function claimTokens() external canClaim() {
         Sale storage sale = sales[msg.sender];
         require(sale.amount > 0, "Only investors");
         require(sale.tokensWithdrawn == false, "Already withdrawn");
@@ -203,6 +207,14 @@ contract MpadPublicSale is Ownable {
         require(
             block.timestamp >= end || availableTokens == 0,
             "Not ended yet"
+        );
+        _;
+    }
+
+    modifier canClaim() {
+        require(
+            block.timestamp >= releaseTime,
+            "Please wait until release time"
         );
         _;
     }
