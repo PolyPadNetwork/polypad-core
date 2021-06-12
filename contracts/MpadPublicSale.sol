@@ -5,8 +5,9 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract MpadPublicSale is Ownable {
+contract MpadPublicSale is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -38,6 +39,8 @@ contract MpadPublicSale is Ownable {
     // Whitelist addresses
     mapping(address => bool) public poolWhiteList;
     address[] private listWhitelists;
+    // Number of investors
+    uint256 public numberParticipants;
 
     // Token for sale
     IERC20 public token;
@@ -84,12 +87,14 @@ contract MpadPublicSale is Ownable {
         availableTokens = _totalAmount;
         minPurchase = _minPurchase;
         maxPurchase = _maxPurchase;
+        numberParticipants = 0;
     }
 
     // Buy tokens
     function buy(uint256 amount)
         external
-        publicSaleActive()
+        publicSaleActive
+        nonReentrant
         checkPoolWhiteList(msg.sender)
     {
         Sale storage sale = sales[msg.sender];
@@ -99,7 +104,7 @@ contract MpadPublicSale is Ownable {
             "Have to buy between minPurchase and maxPurchase"
         );
         require(amount <= availableTokens, "Not enough tokens to sell");
-        uint256 currencyAmount = amount.mul(price).div(1e18); // USDT 6 decimals
+        uint256 currencyAmount = amount.mul(price).div(1e18);
         require(
             currency.balanceOf(msg.sender) >= currencyAmount,
             "Insufficient account balance"
@@ -108,11 +113,12 @@ contract MpadPublicSale is Ownable {
         availableTokens = availableTokens.sub(amount);
         currency.safeTransferFrom(msg.sender, address(this), currencyAmount);
         sales[msg.sender] = Sale(msg.sender, amount, false);
+        numberParticipants += 1;
         emit Buy(msg.sender, currencyAmount, amount);
     }
 
     // Withdraw purchased tokens after release time
-    function claimTokens() external canClaim() {
+    function claimTokens() external canClaim nonReentrant {
         Sale storage sale = sales[msg.sender];
         require(sale.amount > 0, "Only investors");
         require(sale.tokensWithdrawn == false, "Already withdrawn");
@@ -123,45 +129,44 @@ contract MpadPublicSale is Ownable {
 
     // Admin withdraw after the sale ends
     // The remaining tokens will be burned
-    function withdraw() external onlyOwner() publicSaleEnded() {
+    function withdraw() external onlyOwner publicSaleEnded nonReentrant {
         uint256 currencyBalance = currency.balanceOf(address(this));
-        currency.safeTransfer(owner(), currencyBalance);
-        emit Withdraw(owner(), currencyBalance);
+        currency.safeTransfer(msg.sender, currencyBalance);
+        emit Withdraw(msg.sender, currencyBalance);
         if (availableTokens > 0) {
+            uint256 burnTokens = availableTokens;
+            availableTokens = 0;
             token.transfer(
                 address(0x000000000000000000000000000000000000dEaD),
-                availableTokens
+                burnTokens
             );
-            emit Burn(
-                0x000000000000000000000000000000000000dEaD,
-                availableTokens
-            );
+            emit Burn(0x000000000000000000000000000000000000dEaD, burnTokens);
         }
     }
 
     // Withdraw without caring about progress. EMERGENCY ONLY.
-    function emergencyWithdraw() external onlyOwner() {
+    function emergencyWithdraw() external onlyOwner nonReentrant {
         if (availableTokens > 0) {
             availableTokens = 0;
         }
 
-        uint256 tokenBalance = token.balanceOf(address(this)); // avoid wrong transfer amount from creator
+        uint256 tokenBalance = token.balanceOf(address(this));
         if (tokenBalance > 0) {
-            token.transfer(owner(), tokenBalance);
-            emit EmergencyWithdraw(owner(), tokenBalance);
+            token.transfer(msg.sender, tokenBalance);
+            emit EmergencyWithdraw(msg.sender, tokenBalance);
         }
 
         uint256 currencyBalance = currency.balanceOf(address(this));
         if (currencyBalance > 0) {
-            currency.safeTransferFrom(address(this), owner(), currencyBalance);
-            emit Withdraw(owner(), currencyBalance);
+            currency.safeTransfer(msg.sender, currencyBalance);
+            emit Withdraw(msg.sender, currencyBalance);
         }
     }
 
     // Add addresses to whitelist
     function addToPoolWhiteList(address[] memory _users)
         public
-        onlyOwner()
+        onlyOwner
         returns (bool)
     {
         for (uint256 i = 0; i < _users.length; i++) {
