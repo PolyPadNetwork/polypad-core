@@ -5,9 +5,9 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./PoolFactory.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract IDOPoolPublic is Ownable {
+contract IDOPoolPublic is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -39,12 +39,12 @@ contract IDOPoolPublic is Ownable {
     // Whitelist addresses
     mapping(address => bool) public poolWhiteList;
     address[] private listWhitelists;
-    // List admins
-    mapping(address => bool) private admins;
     // Number of investors
     uint256 public numberParticipants;
 
+    // Token for sale
     IERC20 public token;
+    // Token used to buy
     IERC20 public currency;
 
     event Buy(address indexed _user, uint256 _amount, uint256 _tokenAmount);
@@ -87,12 +87,14 @@ contract IDOPoolPublic is Ownable {
         availableTokens = _totalAmount;
         minPurchase = _minPurchase;
         maxPurchase = _maxPurchase;
+        numberParticipants = 0;
     }
 
     // Buy tokens
     function buy(uint256 amount)
         external
-        poolActive()
+        poolActive
+        nonReentrant
         checkPoolWhiteList(msg.sender)
     {
         Sale storage sale = sales[msg.sender];
@@ -111,12 +113,12 @@ contract IDOPoolPublic is Ownable {
         availableTokens = availableTokens.sub(amount);
         currency.safeTransferFrom(msg.sender, address(this), currencyAmount);
         sales[msg.sender] = Sale(msg.sender, amount, false);
-        numberParticipants.add(1);
+        numberParticipants += 1;
         emit Buy(msg.sender, currencyAmount, amount);
     }
 
     // Withdraw purchased tokens after release time
-    function claimTokens() external canClaim() {
+    function claimTokens() external canClaim nonReentrant {
         Sale storage sale = sales[msg.sender];
         require(sale.amount > 0, "Only investors");
         require(sale.tokensWithdrawn == false, "Already withdrawn");
@@ -126,27 +128,63 @@ contract IDOPoolPublic is Ownable {
     }
 
     // Admin withdraw after the sale ends
-    function withdraw() external onlyAdmins() poolEnded() {
-        uint256 amount = currency.balanceOf(address(this));
-        currency.safeTransfer(factoryOwner(), amount);
-        emit Withdraw(owner(), amount);
+    function withdraw() external onlyOwner poolEnded nonReentrant {
+        uint256 currencyBalance = currency.balanceOf(address(this));
+        currency.safeTransfer(msg.sender, currencyBalance);
+        emit Withdraw(owner(), currencyBalance);
         if (availableTokens > 0) {
-            token.transfer(factoryOwner(), availableTokens);
+            availableTokens = 0;
+            token.transfer(msg.sender, token.balanceOf(address(this)));
         }
     }
 
     // Withdraw without caring about progress. EMERGENCY ONLY.
-    function emergencyWithdraw() external onlyAdmins() {
-        uint256 currencyBalance = currency.balanceOf(address(this));
-        if (currencyBalance > 0) {
-            currency.safeTransfer(factoryOwner(), currencyBalance);
-            emit Withdraw(factoryOwner(), currencyBalance);
+    function emergencyWithdraw() external onlyOwner nonReentrant {
+        if (availableTokens > 0) {
+            availableTokens = 0;
         }
+
         uint256 tokenBalance = token.balanceOf(address(this));
         if (tokenBalance > 0) {
-            token.transfer(factoryOwner(), tokenBalance);
-            emit EmergencyWithdraw(factoryOwner(), tokenBalance);
+            token.transfer(msg.sender, tokenBalance);
+            emit EmergencyWithdraw(msg.sender, tokenBalance);
         }
+
+        uint256 currencyBalance = currency.balanceOf(address(this));
+        if (currencyBalance > 0) {
+            currency.safeTransfer(msg.sender, currencyBalance);
+            emit Withdraw(msg.sender, currencyBalance);
+        }
+    }
+
+    // Add addresses to whitelist
+    function addToPoolWhiteList(address[] memory _users)
+        public
+        onlyOwner
+        returns (bool)
+    {
+        for (uint256 i = 0; i < _users.length; i++) {
+            if (poolWhiteList[_users[i]] != true) {
+                poolWhiteList[_users[i]] = true;
+                listWhitelists.push(address(_users[i]));
+            }
+        }
+        return true;
+    }
+
+    // Get the whitelist
+    function getPoolWhiteLists() public view returns (address[] memory) {
+        return listWhitelists;
+    }
+
+    // Check if the address is in the list
+    function isPoolWhiteListed(address _user) public view returns (bool) {
+        return poolWhiteList[_user];
+    }
+
+    modifier checkPoolWhiteList(address _address) {
+        require(isPoolWhiteListed(_address), "You are not whitelisted");
+        _;
     }
 
     modifier poolActive() {
@@ -171,83 +209,6 @@ contract IDOPoolPublic is Ownable {
         );
         _;
     }
-
-    // Add addresses to whitelist
-    function addToPoolWhiteList(address[] memory _users)
-        public
-        onlyAdmins()
-        returns (bool)
-    {
-        for (uint256 i = 0; i < _users.length; i++) {
-            if (poolWhiteList[_users[i]] != true) {
-                poolWhiteList[_users[i]] = true;
-                listWhitelists.push(address(_users[i]));
-            }
-        }
-        return true;
-    }
-
-    // Add addresses to admin list
-    function addToPoolAdmins(address[] memory _users)
-        public
-        onlyFactoryOwner()
-        returns (bool)
-    {
-        for (uint256 i = 0; i < _users.length; i++) {
-            admins[_users[i]] = true;
-        }
-        return true;
-    }
-
-    // Remove addresses from admin list
-    function removeFromPoolAdmins(address[] memory _users)
-        public
-        onlyFactoryOwner()
-        returns (bool)
-    {
-        for (uint256 i = 0; i < _users.length; i++) {
-            admins[_users[i]] = false;
-        }
-        return true;
-    }
-
-    // Get the whitelist
-    function getPoolWhiteLists() public view returns (address[] memory) {
-        return listWhitelists;
-    }
-
-    // Check if the address is in the list
-    function isPoolWhiteListed(address _user) public view returns (bool) {
-        return poolWhiteList[_user];
-    }
-
-    modifier checkPoolWhiteList(address _address) {
-        require(isPoolWhiteListed(_address), "You are not whitelisted");
-        _;
-    }
-
-    function isPoolAdmins(address _user) public view returns (bool) {
-        return admins[_user];
-    }
-
-    modifier onlyAdmins() {
-        require(
-            isPoolAdmins(msg.sender) ||
-                msg.sender == PoolFactory(owner()).owner(),
-            "you are not admin"
-        );
-        _;
-    }
-
-    modifier onlyFactoryOwner() {
-        require(msg.sender == PoolFactory(owner()).owner());
-        _;
-    }
-
-    function factoryOwner() private view returns (address) {
-        return PoolFactory(owner()).owner();
-    }
-
     modifier canClaim() {
         require(
             block.timestamp >= releaseTime,
